@@ -4,8 +4,10 @@
 use bevy::prelude::*;
 use std::num::ParseIntError;
 
-use bevy::log::LogPlugin;
-use bevy::utils::{dbg, error, info, tracing::Level, warn};
+use bevy::{
+    log::LogPlugin,
+    utils::{dbg, error, info, tracing::Level, warn},
+};
 
 fn main() {
     App::new()
@@ -14,6 +16,7 @@ fn main() {
         .add_plugins(LogPlugin {
             level: Level::TRACE,
             filter: "".to_string(),
+            ..default()
         })
         .add_systems(
             Update,

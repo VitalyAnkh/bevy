@@ -1,33 +1,41 @@
-use std::{fmt, num::ParseIntError, str::from_utf8_unchecked};
+use core::{
+    fmt::{self, Write},
+    num::ParseIntError,
+    str::from_utf8_unchecked,
+};
 
-use thiserror::Error;
+use derive_more::derive::{Display, Error, From};
 
 use super::{Access, ReflectPathError};
 
 /// An error that occurs when parsing reflect path strings.
-#[derive(Debug, PartialEq, Eq, Error)]
-#[error(transparent)]
+#[derive(Debug, PartialEq, Eq, Error, Display)]
+#[error(ignore)]
 pub struct ParseError<'a>(Error<'a>);
 
 /// A parse error for a path string.
-#[derive(Debug, PartialEq, Eq, Error)]
+#[derive(Debug, PartialEq, Eq, Error, Display, From)]
 enum Error<'a> {
-    #[error("expected an identifier, but reached end of path string")]
+    #[display("expected an identifier, but reached end of path string")]
     NoIdent,
 
-    #[error("expected an identifier, got '{0}' instead")]
+    #[display("expected an identifier, got '{_0}' instead")]
+    #[error(ignore)]
+    #[from(ignore)]
     ExpectedIdent(Token<'a>),
 
-    #[error("failed to parse index as integer")]
-    InvalidIndex(#[from] ParseIntError),
+    #[display("failed to parse index as integer")]
+    InvalidIndex(ParseIntError),
 
-    #[error("a '[' wasn't closed, reached end of path string before finding a ']'")]
+    #[display("a '[' wasn't closed, reached end of path string before finding a ']'")]
     Unclosed,
 
-    #[error("a '[' wasn't closed properly, got '{0}' instead")]
+    #[display("a '[' wasn't closed properly, got '{_0}' instead")]
+    #[error(ignore)]
+    #[from(ignore)]
     BadClose(Token<'a>),
 
-    #[error("a ']' was found before an opening '['")]
+    #[display("a ']' was found before an opening '['")]
     CloseBeforeOpen,
 }
 
@@ -61,6 +69,7 @@ impl<'a> PathParser<'a> {
         //   the last byte before an ASCII utf-8 character (ie: it is a char
         //   boundary).
         // - The slice always starts after a symbol ie: an ASCII character's boundary.
+        #[allow(unsafe_code)]
         let ident = unsafe { from_utf8_unchecked(ident) };
 
         self.remaining = remaining;
@@ -102,12 +111,15 @@ impl<'a> Iterator for PathParser<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let token = self.next_token()?;
         let offset = self.offset();
-        let err = |error| ReflectPathError::ParseError {
+        Some((
+            self.access_following(token)
+                .map_err(|error| ReflectPathError::ParseError {
+                    offset,
+                    path: self.path,
+                    error: ParseError(error),
+                }),
             offset,
-            path: self.path,
-            error: ParseError(error),
-        };
-        Some((self.access_following(token).map_err(err), offset))
+        ))
     }
 }
 
@@ -141,14 +153,13 @@ enum Token<'a> {
 }
 impl fmt::Display for Token<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let text = match self {
-            Token::Dot => ".",
-            Token::Pound => "#",
-            Token::OpenBracket => "[",
-            Token::CloseBracket => "]",
-            Token::Ident(ident) => ident.0,
-        };
-        f.write_str(text)
+        match self {
+            Token::Dot => f.write_char('.'),
+            Token::Pound => f.write_char('#'),
+            Token::OpenBracket => f.write_char('['),
+            Token::CloseBracket => f.write_char(']'),
+            Token::Ident(ident) => f.write_str(ident.0),
+        }
     }
 }
 impl<'a> Token<'a> {
